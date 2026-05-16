@@ -189,6 +189,43 @@
 </div>
 
 <script>
+// ─── Block common escape shortcuts ───────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const blocked = ['F5','F11','F12','Tab'];
+  const ctrlBlocked = ['w','r','l','n','t'];
+  if (blocked.includes(e.key)) { e.preventDefault(); e.stopPropagation(); return; }
+  if ((e.ctrlKey || e.metaKey) && ctrlBlocked.includes(e.key.toLowerCase())) {
+    e.preventDefault(); e.stopPropagation(); return;
+  }
+}, true);
+
+// ─── Pointer lock ─────────────────────────────────────────────────────────────
+let prankRevealed = false;
+function lockPointer() {
+  if (!prankRevealed && document.pointerLockElement !== document.body)
+    document.body.requestPointerLock();
+}
+document.addEventListener('click',   lockPointer);
+document.addEventListener('keydown', lockPointer);
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement && !prankRevealed) setTimeout(lockPointer, 200);
+});
+
+// ─── Alarm sound ──────────────────────────────────────────────────────────────
+let audioCtx = null;
+function ensureAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+function beep(freq = 800, duration = 0.15, vol = 0.15) {
+  ensureAudio();
+  const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = 'sine'; osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.start(); osc.stop(audioCtx.currentTime + duration + 0.01);
+}
+// Single low beep near the end to signal "something bad happened"
+setTimeout(() => beep(220, 1.5, 0.25), 28000);
+
 // ─── QR code pattern (decorative) ────────────────────────────────────────────
 const qr = document.getElementById('qr');
 const pat = [0,1,1,0,1,0,1, 1,0,1,1,0,1,0, 0,1,0,1,1,0,1,
@@ -254,7 +291,9 @@ document.addEventListener('keydown', e => {
 
 // ─── Reveal ───────────────────────────────────────────────────────────────────
 function revealPrank() {
-  document.getElementById('bsod').style.display          = 'none';
+  prankRevealed = true;
+  document.exitPointerLock();
+  document.getElementById('bsod').style.display           = 'none';
   document.getElementById('restart-screen').style.display = 'none';
   const rv = document.getElementById('reveal-screen');
   rv.style.display = 'flex';

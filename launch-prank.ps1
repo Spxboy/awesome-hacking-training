@@ -125,11 +125,11 @@ $url = "file:///$($htmlPath.Replace('\', '/'))?$query"
 # Edge kiosk: no address bar, no title bar, no close button, fullscreen.
 # The prank's reveal chord (Alt+Esc → Alt+Up) calls window.close(), which
 # exits kiosk and unblocks the Wait-Process below.
-$edgePath   = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
 $chromePath = "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"
+$edgePath   = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
 
-$browser = if     (Test-Path $edgePath)   { $edgePath }
-           elseif (Test-Path $chromePath) { $chromePath }
+$browser = if     (Test-Path $chromePath) { $chromePath }   # prefer Chrome
+           elseif (Test-Path $edgePath)   { $edgePath }
            else                           { $null }
 
 try {
