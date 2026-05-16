@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>&#x3A;</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0067b8;
+      color: #ffffff;
+      font-family: 'Segoe UI', 'Segoe UI Variable', Arial, sans-serif;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      cursor: none;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 10vh 12vw;
+    }
+
+    .container {
+      max-width: 680px;
+    }
+
+    .sad-face {
+      font-size: 108px;
+      font-weight: 200;
+      line-height: 1;
+      margin-bottom: 32px;
+      letter-spacing: -4px;
+    }
+
+    h1 {
+      font-size: 38px;
+      font-weight: 300;
+      line-height: 1.25;
+      margin-bottom: 36px;
+      max-width: 620px;
+    }
+
+    .section {
+      font-size: 16px;
+      line-height: 1.7;
+      margin-bottom: 18px;
+      font-weight: 300;
+    }
+
+    .section a {
+      color: #ffffff;
+      text-decoration: underline;
+    }
+
+    .progress-line {
+      font-size: 16px;
+      font-weight: 300;
+      margin-top: 40px;
+    }
+
+    .progress-line span {
+      font-weight: 600;
+    }
+
+    .qr-area {
+      margin-top: 48px;
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    .qr-box {
+      width: 80px;
+      height: 80px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.3);
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: repeat(7,1fr);
+      grid-template-rows: repeat(7,1fr);
+      padding: 6px;
+      gap: 2px;
+    }
+
+    .qr-cell {
+      background: rgba(255,255,255,0.7);
+      border-radius: 1px;
+    }
+    .qr-cell.empty { background: transparent; }
+
+    .qr-text {
+      font-size: 13px;
+      font-weight: 300;
+      line-height: 1.6;
+      opacity: 0.9;
+      padding-top: 4px;
+    }
+
+    .stop-code {
+      margin-top: 32px;
+      font-size: 14px;
+      font-weight: 300;
+      opacity: 0.85;
+      line-height: 1.8;
+    }
+
+    /* Restart overlay */
+    #restart-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      color: #fff;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      font-size: 16px;
+      font-weight: 300;
+    }
+    #restart-screen .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(255,255,255,0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Reveal screen */
+    #reveal-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      color: #00ff41;
+      font-family: 'Courier New', monospace;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container" id="bsod">
+  <div class="sad-face">:(</div>
+
+  <h1>Your PC ran into a problem and needs to restart. We're just collecting some error info, and then we'll restart for you.</h1>
+
+  <div class="progress-line">
+    <span id="pct">0</span>% complete
+  </div>
+
+  <div class="qr-area">
+    <div class="qr-box" id="qr"></div>
+    <div class="qr-text">
+      For more information about this issue and possible fixes,<br>
+      visit <u>https://www.windows.com/stopcode</u><br><br>
+      If you call a support person, give them this info:<br>
+      Stop code: <strong>CRITICAL_PROCESS_DIED</strong>
+    </div>
+  </div>
+
+  <div class="stop-code" id="info-block"></div>
+</div>
+
+<!-- Fake restart screen -->
+<div id="restart-screen">
+  <div class="spinner"></div>
+  <div>Restarting...</div>
+</div>
+
+<!-- Reveal screen -->
+<div id="reveal-screen">
+  <div style="font-size:72px">😂</div>
+  <h1 style="font-size:36px; letter-spacing:4px; color:#00ff41;">GOT YOU!</h1>
+  <p style="font-size:16px; color:#888; max-width:480px; line-height:1.8;">
+    Relax — your PC is completely fine.<br>
+    This was just a harmless prank page.<br>
+    <span style="color:#00ff41;">Prank removed — won't run on next reboot.</span>
+  </p>
+  <p style="font-size:13px; color:#555; margin-top:8px;">Closing in a few seconds...</p>
+  <p style="font-size:12px; color:#333; margin-top:40px;">made with ❤ and zero actual hacking</p>
+</div>
+
+<script>
+// ─── QR code pattern (decorative) ────────────────────────────────────────────
+const qr = document.getElementById('qr');
+const pat = [0,1,1,0,1,0,1, 1,0,1,1,0,1,0, 0,1,0,1,1,0,1,
+             1,1,0,0,1,1,0, 0,1,1,0,0,1,1, 1,0,0,1,0,0,1,
+             0,1,0,1,1,0,0];
+pat.forEach(v => {
+  const c = document.createElement('div');
+  c.className = 'qr-cell' + (v ? '' : ' empty');
+  qr.appendChild(c);
+});
+
+// ─── Inject real system data if launched via launch-prank.ps1 ────────────────
+const params   = new URLSearchParams(window.location.search);
+const hostname = params.get('hostname');
+const username = params.get('user');
+const infoBlock = document.getElementById('info-block');
+if (hostname || username) {
+  infoBlock.textContent = `What failed: ${hostname || 'DESKTOP-PC'} (${username || 'user'})`;
+}
+
+// ─── Progress counter (takes ~35 s to hit 100%) ───────────────────────────────
+let pct = 0;
+const pctEl = document.getElementById('pct');
+
+function tick() {
+  // Slow, uneven increments — realistic Windows feel
+  const step = Math.random() < 0.3 ? 0 : (Math.random() * 1.8 + 0.2);
+  pct = Math.min(pct + step, 100);
+  pctEl.textContent = Math.floor(pct);
+  if (pct < 100) {
+    setTimeout(tick, 200 + Math.random() * 300);
+  } else {
+    pctEl.textContent = 100;
+    setTimeout(showRestart, 1500);
+  }
+}
+tick();
+
+// ─── Fake restart sequence ────────────────────────────────────────────────────
+function showRestart() {
+  document.getElementById('bsod').style.display = 'none';
+  const rs = document.getElementById('restart-screen');
+  rs.style.display = 'flex';
+  setTimeout(revealPrank, 3000);
+}
+
+// ─── Secret chord: Alt + Esc → then Alt + Up (within 2 s) ────────────────────
+let altEscSeen = false;
+let altEscTimer = null;
+
+document.addEventListener('keydown', e => {
+  if (e.altKey && e.key === 'Escape') {
+    altEscSeen = true;
+    clearTimeout(altEscTimer);
+    altEscTimer = setTimeout(() => { altEscSeen = false; }, 2000);
+  }
+  if (e.altKey && e.key === 'ArrowUp' && altEscSeen) {
+    altEscSeen = false;
+    clearTimeout(altEscTimer);
+    revealPrank();
+  }
+});
+
+// ─── Reveal ───────────────────────────────────────────────────────────────────
+function revealPrank() {
+  document.getElementById('bsod').style.display          = 'none';
+  document.getElementById('restart-screen').style.display = 'none';
+  const rv = document.getElementById('reveal-screen');
+  rv.style.display = 'flex';
+  setTimeout(() => window.close(), 4000);
+}
+</script>
+</body>
+</html>
