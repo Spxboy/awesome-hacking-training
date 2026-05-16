@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>System</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      color: #00ff41;
+      font-family: 'Courier New', monospace;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      cursor: none;
+    }
+
+    /* Matrix rain canvas behind everything */
+    #matrix-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      opacity: 0.18;
+    }
+
+    /* Main overlay */
+    #overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 18px;
+      gap: 14px;
+    }
+
+    /* Top warning banner */
+    #top-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,0,0,0.12);
+      border: 1px solid #ff0000;
+      padding: 8px 16px;
+      animation: blink-border 1s infinite;
+    }
+    @keyframes blink-border {
+      0%, 100% { border-color: #ff0000; box-shadow: 0 0 8px #ff0000; }
+      50%       { border-color: #880000; box-shadow: none; }
+    }
+    #top-banner .warn-label {
+      color: #ff3333;
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    #top-banner .warn-ip {
+      color: #ff6666;
+      font-size: 12px;
+    }
+    #clock {
+      color: #888;
+      font-size: 12px;
+    }
+
+    /* Middle area: two columns */
+    #middle {
+      display: flex;
+      gap: 14px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* Terminal log pane */
+    #terminal {
+      flex: 2;
+      background: rgba(0,0,0,0.85);
+      border: 1px solid #00ff41;
+      padding: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      box-shadow: 0 0 12px rgba(0,255,65,0.15);
+    }
+    #terminal-title {
+      color: #00ff41;
+      font-size: 11px;
+      margin-bottom: 8px;
+      letter-spacing: 3px;
+      border-bottom: 1px solid #003a0e;
+      padding-bottom: 4px;
+    }
+    #log-lines {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .log-line {
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre;
+      opacity: 0;
+      animation: fade-in 0.15s forwards;
+    }
+    @keyframes fade-in { to { opacity: 1; } }
+    .log-line.red    { color: #ff4444; }
+    .log-line.yellow { color: #ffcc00; }
+    .log-line.cyan   { color: #00ccff; }
+    .log-line.white  { color: #dddddd; }
+    .log-line.green  { color: #00ff41; }
+    .log-line.dim    { color: #007a20; }
+
+    /* Right sidebar */
+    #sidebar {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel {
+      background: rgba(0,0,0,0.85);
+      border: 1px solid #00ff41;
+      padding: 12px;
+      box-shadow: 0 0 8px rgba(0,255,65,0.1);
+    }
+    .panel-title {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: #007a20;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    /* Progress bars */
+    .prog-item {
+      margin-bottom: 9px;
+    }
+    .prog-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 3px;
+    }
+    .prog-label span.pct { color: #00ff41; }
+    .prog-bar-bg {
+      height: 6px;
+      background: #0a1a0a;
+      border: 1px solid #004010;
+    }
+    .prog-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00ff41, #00cc33);
+      width: 0%;
+      transition: width 0.4s ease;
+      box-shadow: 0 0 6px #00ff41;
+    }
+    .prog-bar-fill.red-bar {
+      background: linear-gradient(90deg, #ff2222, #cc0000);
+      box-shadow: 0 0 6px #ff0000;
+    }
+
+    /* Victim info box */
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #001a00;
+      padding-bottom: 4px;
+    }
+    .info-row .key   { color: #007a20; }
+    .info-row .value { color: #00ff41; font-size: 11px; }
+    .info-row .value.red { color: #ff4444; }
+
+    /* Bottom status bar */
+    #statusbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255,0,0,0.08);
+      border: 1px solid #330000;
+      padding: 6px 14px;
+      font-size: 11px;
+    }
+    #statusbar .left  { color: #ff4444; letter-spacing: 1px; }
+    #statusbar .right { color: #555; }
+
+    /* Big scary modal that appears later */
+    #modal {
+      display: none;
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 10;
+      background: #000;
+      border: 2px solid #ff0000;
+      box-shadow: 0 0 60px rgba(255,0,0,0.6);
+      padding: 40px 60px;
+      text-align: center;
+      min-width: 420px;
+      animation: pulse-modal 1.5s infinite;
+    }
+    @keyframes pulse-modal {
+      0%, 100% { box-shadow: 0 0 40px rgba(255,0,0,0.5); }
+      50%       { box-shadow: 0 0 80px rgba(255,0,0,0.9); }
+    }
+    #modal .skull { font-size: 64px; margin-bottom: 16px; }
+    #modal h1 {
+      color: #ff0000;
+      font-size: 28px;
+      letter-spacing: 4px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+    #modal p {
+      color: #ff8888;
+      font-size: 13px;
+      line-height: 1.8;
+      margin-bottom: 8px;
+    }
+    #modal .countdown {
+      color: #ffcc00;
+      font-size: 42px;
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    #modal .reveal-btn {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 10px 28px;
+      border: 1px solid #00ff41;
+      color: #00ff41;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      background: transparent;
+    }
+    #modal .reveal-btn:hover { background: #003a00; }
+
+    /* Scanlines overlay for CRT feel */
+    #scanlines {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+    }
+
+    /* Glitch effect on the body */
+    @keyframes glitch {
+      0%   { transform: translate(0); }
+      20%  { transform: translate(-2px, 1px); }
+      40%  { transform: translate(2px, -1px); }
+      60%  { transform: translate(-1px, 2px); }
+      80%  { transform: translate(1px, -2px); }
+      100% { transform: translate(0); }
+    }
+    .glitching { animation: glitch 0.15s steps(1) 5; }
+  </style>
+</head>
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+<div id="scanlines"></div>
+
+<div id="overlay">
+
+  <div id="top-banner">
+    <span class="warn-label">⚠ UNAUTHORIZED ACCESS DETECTED ⚠</span>
+    <span class="warn-ip" id="attacker-ip">TRACING: 185.220.101.<span id="ip-octet">0</span></span>
+    <span id="clock">00:00:00</span>
+  </div>
+
+  <div id="middle">
+
+    <!-- Terminal log -->
+    <div id="terminal">
+      <div id="terminal-title">[ SYSTEM INTRUSION LOG — LIVE FEED ]</div>
+      <div id="log-lines"></div>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+
+      <!-- Progress bars -->
+      <div class="panel">
+        <div class="panel-title">Operation Status</div>
+
+        <div class="prog-item">
+          <div class="prog-label"><span>Bypassing Firewall</span><span class="pct" id="pct-fw">0%</span></div>
+          <div class="prog-bar-bg"><div class="prog-bar-fill" id="bar-fw"></div></div>
+        </div>
+        <div class="prog-item">
+          <div class="prog-label"><span>Decrypting Passwords</span><span class="pct" id="pct-pw">0%</span></div>
+          <div class="prog-bar-bg"><div class="prog-bar-fill" id="bar-pw"></div></div>
+        </div>
+        <div class="prog-item">
+          <div class="prog-label"><span>Extracting Files</span><span class="pct" id="pct-ex">0%</span></div>
+          <div class="prog-bar-bg"><div class="prog-bar-fill" id="bar-ex"></div></div>
+        </div>
+        <div class="prog-item">
+          <div class="prog-label"><span>Uploading to C2</span><span class="pct" id="pct-up">0%</span></div>
+          <div class="prog-bar-bg"><div class="prog-bar-fill red-bar" id="bar-up"></div></div>
+        </div>
+        <div class="prog-item">
+          <div class="prog-label"><span>Wiping Logs</span><span class="pct" id="pct-wl">0%</span></div>
+          <div class="prog-bar-bg"><div class="prog-bar-fill red-bar" id="bar-wl"></div></div>
+        </div>
+      </div>
+
+      <!-- Victim info -->
+      <div class="panel">
+        <div class="panel-title">Target Acquired</div>
+        <div class="info-row"><span class="key">HOSTNAME</span><span class="value" id="info-host">DESKTOP-???</span></div>
+        <div class="info-row"><span class="key">PUBLIC IP</span><span class="value" id="info-ip">Resolving...</span></div>
+        <div class="info-row"><span class="key">OS</span><span class="value">Windows 11 Pro x64</span></div>
+        <div class="info-row"><span class="key">USER</span><span class="value" id="info-user">???</span></div>
+        <div class="info-row"><span class="key">LOCATION</span><span class="value" id="info-loc">Resolving...</span></div>
+        <div class="info-row" id="row-disk" style="display:none"><span class="key">DISK (C:)</span><span class="value red" id="info-disk"></span></div>
+        <div class="info-row" id="row-ram" style="display:none"><span class="key">RAM</span><span class="value" id="info-ram"></span></div>
+        <div class="info-row"><span class="key">FILES STOLEN</span><span class="value red" id="info-files">0</span></div>
+        <div class="info-row"><span class="key">PASSWORDS</span><span class="value red" id="info-pass">0</span></div>
+      </div>
+
+      <!-- Hex dump flicker -->
+      <div class="panel" style="flex:1; overflow:hidden;">
+        <div class="panel-title">Memory Dump</div>
+        <div id="hex-dump" style="font-size:10px; color:#003a00; line-height:1.5; overflow:hidden;"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="statusbar">
+    <span class="left" id="status-msg">SYSTEM COMPROMISED — DO NOT DISCONNECT</span>
+    <span class="right" id="bytes-counter">0 bytes exfiltrated</span>
+  </div>
+
+</div>
+
+<!-- Big modal -->
+<div id="modal">
+  <div class="skull">💀</div>
+  <h1>YOU'VE BEEN HACKED</h1>
+  <p>All your files have been encrypted.<br>
+     Passwords extracted: <span style="color:#ffcc00" id="modal-pass">0</span><br>
+     Data uploaded: <span style="color:#ffcc00" id="modal-bytes">0</span> MB</p>
+  <p style="color:#ff4444; margin-top:12px;">Self-destruct sequence initiated...</p>
+  <div class="countdown" id="modal-timer">10</div>
+  <br>
+  <button class="reveal-btn" onclick="revealPrank()">[ IT'S JUST A PRANK! ]</button>
+</div>
+
+<script>
+// ─── Matrix rain ─────────────────────────────────────────────────────────────
+const canvas = document.getElementById('matrix-canvas');
+const ctx    = canvas.getContext('2d');
+const chars  = 'アイウエオカキクケコサシスセソタチツテトナニヌネノABCDEF0123456789<>{}[]|/\\';
+let drops = [];
+
+function initMatrix() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const cols = Math.floor(canvas.width / 16);
+  drops = Array(cols).fill(1);
+}
+
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0,0,0,0.05)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#00ff41';
+  ctx.font = '14px Courier New';
+  drops.forEach((y, i) => {
+    const ch = chars[Math.floor(Math.random() * chars.length)];
+    ctx.fillText(ch, i * 16, y * 16);
+    if (y * 16 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  });
+}
+
+initMatrix();
+window.addEventListener('resize', initMatrix);
+setInterval(drawMatrix, 50);
+
+// ─── Clock ────────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toTimeString().slice(0, 8);
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─── Attacker IP flicker ──────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('ip-octet').textContent = Math.floor(Math.random() * 256);
+}, 200);
+
+// ─── Log lines ───────────────────────────────────────────────────────────────
+const logContainer = document.getElementById('log-lines');
+const MAX_LINES = 28;
+
+const logPool = [
+  ['dim',    '> Initializing exploit framework v4.2.1...'],
+  ['green',  '> Target identified: scanning open ports...'],
+  ['green',  '> Port 22 (SSH)   OPEN'],
+  ['green',  '> Port 445 (SMB)  OPEN'],
+  ['green',  '> Port 3389 (RDP) OPEN'],
+  ['yellow', '> Deploying zero-day payload CVE-2024-38189...'],
+  ['green',  '> Firewall rule 0x4f7a bypassed — SUCCESS'],
+  ['cyan',   '> Dumping LSASS memory...'],
+  ['cyan',   '> Extracted NTLM hash: 8846f7eaee8fb117...'],
+  ['red',    '> Windows Defender: DISABLED'],
+  ['red',    '> Shadow copies: DELETED'],
+  ['cyan',   '> Enumerating C:\\Users\\...'],
+  ['white',  '  Found: Documents\\taxes_2024.xlsx'],
+  ['white',  '  Found: Documents\\passwords.txt'],
+  ['white',  '  Found: Pictures\\private\\'],
+  ['white',  '  Found: AppData\\Chrome\\Default\\Login Data'],
+  ['yellow', '> Stealing Chrome credentials...'],
+  ['red',    '> 47 passwords extracted'],
+  ['yellow', '> Accessing bank portal session cookie...'],
+  ['red',    '> Session hijacked: BANKOFAMERICA.COM'],
+  ['cyan',   '> Packaging 4.2 GB of files...'],
+  ['green',  '> Uploading to 45.142.212.100:8443...'],
+  ['dim',    '> Transfer rate: 8.4 MB/s'],
+  ['yellow', '> Installing persistence (HKCU\\Run)...'],
+  ['green',  '> Scheduled task created: svchost_updater'],
+  ['red',    '> Ransomware module: ARMED'],
+  ['yellow', '> Encrypting files with AES-256...'],
+  ['dim',    '  Encrypted: Documents (847 files)'],
+  ['dim',    '  Encrypted: Desktop (23 files)'],
+  ['dim',    '  Encrypted: Pictures (1,204 files)'],
+  ['cyan',   '> Sending ransom note...'],
+  ['green',  '> Exfiltration: 92% complete'],
+  ['red',    '> COVERING TRACKS — wiping event logs...'],
+  ['dim',    '  Security.evtx  — ERASED'],
+  ['dim',    '  System.evtx    — ERASED'],
+  ['dim',    '  Application.evtx — ERASED'],
+  ['yellow', '> Notifying command-and-control server...'],
+  ['red',    '> OPERATION COMPLETE — PAYLOAD DEPLOYED'],
+];
+let logIdx = 0;
+
+function addLogLine() {
+  const [cls, text] = logPool[logIdx % logPool.length];
+  const line = document.createElement('div');
+  line.className = `log-line ${cls}`;
+  line.textContent = text;
+  logContainer.appendChild(line);
+  if (logContainer.children.length > MAX_LINES) {
+    logContainer.removeChild(logContainer.firstChild);
+  }
+  logIdx++;
+  // Glitch effect occasionally
+  if (Math.random() < 0.06) {
+    document.body.classList.add('glitching');
+    setTimeout(() => document.body.classList.remove('glitching'), 300);
+  }
+}
+setInterval(addLogLine, 280);
+
+// ─── Progress bars ────────────────────────────────────────────────────────────
+const bars = [
+  { bar: 'bar-fw', pct: 'pct-fw', target: 100, speed: 0.6, current: 0 },
+  { bar: 'bar-pw', pct: 'pct-pw', target: 100, speed: 0.4, current: 0 },
+  { bar: 'bar-ex', pct: 'pct-ex', target: 100, speed: 0.35, current: 0 },
+  { bar: 'bar-up', pct: 'pct-up', target: 100, speed: 0.5, current: 0 },
+  { bar: 'bar-wl', pct: 'pct-wl', target: 100, speed: 0.3, current: 0 },
+];
+
+// Stagger the start times
+bars[1].startDelay = 4000;
+bars[2].startDelay = 9000;
+bars[3].startDelay = 14000;
+bars[4].startDelay = 20000;
+
+bars.forEach(b => {
+  const delay = b.startDelay || 0;
+  setTimeout(() => {
+    const iv = setInterval(() => {
+      b.current = Math.min(b.current + b.speed + Math.random() * 0.8, 100);
+      const pct = Math.floor(b.current);
+      document.getElementById(b.bar).style.width = pct + '%';
+      document.getElementById(b.pct).textContent = pct + '%';
+      if (b.current >= 100) clearInterval(iv);
+    }, 80);
+  }, delay);
+});
+
+// ─── Victim info (URL params injected by launch-prank.ps1, else random) ──────
+const hostnames = ['DESKTOP-9X2K4J','LAPTOP-B7RW2P','PC-HOME-01','WORKSTATION-5'];
+const users     = ['john.smith','sarah.j','mike_h','user','Administrator'];
+const locations = ['New York, US','London, UK','Toronto, CA','Sydney, AU','Berlin, DE'];
+const publicIPs = ['76.89.142.','98.14.55.','104.28.12.','142.112.5.'];
+
+const p = new URLSearchParams(window.location.search);
+document.getElementById('info-host').textContent = p.get('hostname') || hostnames[Math.floor(Math.random()*hostnames.length)];
+document.getElementById('info-user').textContent = p.get('user')     || users[Math.floor(Math.random()*users.length)];
+
+if (p.get('disk')) {
+  document.getElementById('info-disk').textContent = p.get('disk');
+  document.getElementById('row-disk').style.display = 'flex';
+}
+if (p.get('ram')) {
+  document.getElementById('info-ram').textContent = p.get('ram');
+  document.getElementById('row-ram').style.display = 'flex';
+}
+
+setTimeout(() => {
+  document.getElementById('info-ip').textContent  = p.get('ip')  || publicIPs[Math.floor(Math.random()*publicIPs.length)] + Math.floor(Math.random()*254+1);
+  document.getElementById('info-loc').textContent = p.get('loc') || locations[Math.floor(Math.random()*locations.length)];
+}, 2000);
+
+// Stolen files counter
+let fileCount = 0, passCount = 0;
+setInterval(() => {
+  fileCount += Math.floor(Math.random() * 8);
+  passCount  = Math.min(passCount + (Math.random() < 0.05 ? 1 : 0), 47);
+  document.getElementById('info-files').textContent = fileCount.toLocaleString();
+  document.getElementById('info-pass').textContent  = passCount;
+  document.getElementById('modal-pass').textContent = passCount;
+}, 300);
+
+// ─── Bytes exfiltrated counter ────────────────────────────────────────────────
+let totalBytes = 0;
+setInterval(() => {
+  totalBytes += Math.floor(Math.random() * 90000 + 10000);
+  const mb = (totalBytes / 1048576).toFixed(1);
+  document.getElementById('bytes-counter').textContent =
+    totalBytes.toLocaleString() + ' bytes exfiltrated';
+  document.getElementById('modal-bytes').textContent = mb;
+}, 120);
+
+// ─── Hex dump flicker ─────────────────────────────────────────────────────────
+const hex = document.getElementById('hex-dump');
+function hexByte() {
+  return Math.floor(Math.random()*256).toString(16).padStart(2,'0').toUpperCase();
+}
+function refreshHex() {
+  let out = '';
+  for (let r = 0; r < 10; r++) {
+    let addr = (0x0040 + r * 16).toString(16).toUpperCase().padStart(8,'0');
+    let row  = '';
+    for (let c = 0; c < 16; c++) row += hexByte() + ' ';
+    out += `${addr}  ${row}\n`;
+  }
+  hex.textContent = out;
+}
+setInterval(refreshHex, 120);
+refreshHex();
+
+// ─── Status message rotation ──────────────────────────────────────────────────
+const statusMsgs = [
+  'SYSTEM COMPROMISED — DO NOT DISCONNECT',
+  'UPLOADING DATA TO REMOTE SERVER...',
+  'ENCRYPTION IN PROGRESS — FILES LOCKED',
+  'DO NOT TURN OFF YOUR COMPUTER',
+  'FIREWALL DISABLED — BACKDOOR INSTALLED',
+];
+let sIdx = 0;
+setInterval(() => {
+  sIdx = (sIdx + 1) % statusMsgs.length;
+  document.getElementById('status-msg').textContent = statusMsgs[sIdx];
+}, 3000);
+
+// ─── Big modal after 30s ──────────────────────────────────────────────────────
+let countdown = 10;
+setTimeout(() => {
+  document.getElementById('modal').style.display = 'block';
+  const ct = setInterval(() => {
+    countdown--;
+    document.getElementById('modal-timer').textContent = countdown;
+    if (countdown <= 0) {
+      document.getElementById('modal-timer').textContent = '💀';
+      clearInterval(ct);
+    }
+  }, 1000);
+}, 30000);
+
+// ─── Secret chord: Alt + Esc → then Alt + Up (within 2 s) ────────────────────
+// In kiosk mode Alt+F4 also closes the window and triggers PS cleanup.
+let altEscSeen = false;
+let altEscTimer = null;
+
+document.addEventListener('keydown', e => {
+  if (e.altKey && e.key === 'Escape') {
+    altEscSeen = true;
+    clearTimeout(altEscTimer);
+    altEscTimer = setTimeout(() => { altEscSeen = false; }, 2000);
+  }
+  if (e.altKey && e.key === 'ArrowUp' && altEscSeen) {
+    altEscSeen = false;
+    clearTimeout(altEscTimer);
+    revealPrank();
+  }
+});
+
+function revealPrank() {
+  document.body.style.animation = 'none';
+  document.body.innerHTML = `
+    <div style="
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      height:100vh; background:#000; color:#00ff41; font-family:'Courier New',monospace;
+      text-align:center; gap:24px;">
+      <div style="font-size:72px">😂</div>
+      <h1 style="font-size:36px; letter-spacing:4px; color:#00ff41;">GOT YOU!</h1>
+      <p style="font-size:16px; color:#888; max-width:480px; line-height:1.8;">
+        Relax — nothing happened to your computer.<br>
+        This was just a harmless prank page.<br>
+        <span style="color:#00ff41;">Prank removed — won't run on next reboot.</span>
+      </p>
+      <p style="font-size:13px; color:#555; margin-top:8px;">Closing in a few seconds...</p>
+      <p style="font-size:12px; color:#333; margin-top:40px;">made with ❤ and zero actual hacking</p>
+    </div>`;
+  // Close the kiosk window — triggers the PowerShell finally block which
+  // restores the taskbar, re-enables Task Manager, and removes the startup entry.
+  setTimeout(() => window.close(), 4000);
+}
+</script>
+</body>
+</html>
