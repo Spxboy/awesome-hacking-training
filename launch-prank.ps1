@@ -7,7 +7,7 @@
     - Hides the taskbar
     - Optionally disables Task Manager (re-enabled on exit)
     - Opens the prank page in Edge/Chrome kiosk mode (no browser UI)
-    - Installs itself as a startup entry so the prank runs on every reboot
+    - Installs itself as a startup entry limited to 2 reboots
     - On exit (victim hits Alt+Esc then Alt+Up): restores everything and
       removes the startup entry permanently
 
@@ -18,7 +18,11 @@
     Skip disabling Task Manager (victim can still Ctrl+Shift+Esc out).
 
 .PARAMETER Uninstall
-    Remove the startup entry without launching the prank.
+    Remove the startup entry and counter without launching the prank.
+
+.PARAMETER Startup
+    Internal flag — set automatically in the startup registry entry.
+    Activates the reboot counter check; do not pass this manually.
 
 .EXAMPLE
     # Right-click launch-prank.ps1 → "Run as Administrator"
@@ -33,18 +37,23 @@
 param(
     [switch]$BSOD,
     [switch]$NoTaskMgrBlock,
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Startup   # set automatically by the registry Run entry
 )
 
 $ErrorActionPreference = 'Stop'
 $StartupName = 'WindowsSecurityHealthService'
 $StartupKey  = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $TmPath      = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\System'
+$CounterKey  = 'HKCU:\Software\WinDefend'
+$CounterName = 'ServiceRunCount'
+$MaxRuns     = 2
 
 # ─── Uninstall mode ──────────────────────────────────────────────────────────
 if ($Uninstall) {
     Remove-ItemProperty -Path $StartupKey -Name $StartupName -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $TmPath     -Name 'DisableTaskMgr' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $CounterKey -Name $CounterName -ErrorAction SilentlyContinue
     Write-Host 'Prank startup entry removed.' -ForegroundColor Green
     exit 0
 }
@@ -59,6 +68,30 @@ if (-not $isAdmin) {
     if ($NoTaskMgrBlock) { $relaunchArgs += ' -NoTaskMgrBlock' }
     Start-Process powershell $relaunchArgs -Verb RunAs
     exit
+}
+
+# ─── Reboot counter — only active when launched from the startup entry ────────
+if ($Startup) {
+    $count = (Get-ItemProperty -Path $CounterKey -Name $CounterName `
+                               -ErrorAction SilentlyContinue).$CounterName
+    if ($null -eq $count) { $count = 0 }
+
+    if ($count -ge $MaxRuns) {
+        # Limit reached — clean up silently and exit without showing anything
+        Remove-ItemProperty -Path $StartupKey -Name $StartupName -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $CounterKey -Name $CounterName -ErrorAction SilentlyContinue
+        exit 0
+    }
+
+    # Increment before running so a hard power-off still counts the run
+    New-Item -Path $CounterKey -Force | Out-Null
+    Set-ItemProperty -Path $CounterKey -Name $CounterName -Value ($count + 1)
+
+    # Remove the startup entry on the last allowed run so reboot 3 is clean
+    # even if the finally block is interrupted by a sudden shutdown
+    if (($count + 1) -ge $MaxRuns) {
+        Remove-ItemProperty -Path $StartupKey -Name $StartupName -ErrorAction SilentlyContinue
+    }
 }
 
 # ─── Win32 API for taskbar show/hide ─────────────────────────────────────────
@@ -91,14 +124,20 @@ $ramGB = [math]::Round(
     (Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum / 1GB
 )
 
-# ─── Install startup persistence ──────────────────────────────────────────────
-# Runs silently (hidden window) on every login until the victim triggers the
-# reveal chord (Alt+Esc → Alt+Up), which closes the browser and lets the
-# finally block below remove this entry.
-$startupArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+# ─── Install startup persistence (max 2 reboots) ──────────────────────────────
+# -Startup tells the script it was launched from the registry Run key so it
+# activates the reboot counter. Counter starts at 0; each boot increments it
+# and the entry self-removes when it hits $MaxRuns (2).
+$startupArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Startup"
 if ($BSOD)           { $startupArgs += ' -BSOD' }
 if ($NoTaskMgrBlock) { $startupArgs += ' -NoTaskMgrBlock' }
 Set-ItemProperty -Path $StartupKey -Name $StartupName -Value "powershell $startupArgs"
+
+# Initialise counter (only on fresh install, not when already running from startup)
+if (-not $Startup) {
+    New-Item -Path $CounterKey -Force | Out-Null
+    Set-ItemProperty -Path $CounterKey -Name $CounterName -Value 0
+}
 
 # ─── Hide taskbar ────────────────────────────────────────────────────────────
 [WinAPI]::ShowWindow($taskbar, 0) | Out-Null   # 0 = hide
@@ -150,8 +189,11 @@ try {
         Read-Host 'Press Enter after the victim has seen the prank, then cleanup will run'
     }
 } finally {
-    # ─── Cleanup — always runs even if script is interrupted ─────────────────
+    # ─── Cleanup — runs when the browser closes (reveal chord or Alt+F4) ─────
+    # Also runs on clean system shutdown; does NOT reliably run on hard power-off,
+    # which is fine — the reboot counter handles that case.
     [WinAPI]::ShowWindow($taskbar, 5) | Out-Null   # 5 = show/restore
-    Remove-ItemProperty -Path $TmPath    -Name 'DisableTaskMgr' -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path $StartupKey -Name $StartupName    -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $TmPath     -Name 'DisableTaskMgr' -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $StartupKey -Name $StartupName     -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $CounterKey -Name $CounterName     -ErrorAction SilentlyContinue
 }
