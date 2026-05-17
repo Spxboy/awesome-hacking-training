@@ -190,6 +190,8 @@
 
 <script>
 // ─── Block common escape shortcuts ───────────────────────────────────────────
+// BSOD page is intentionally minimalist — just silently block, no overlay
+// (a BSOD wouldn't show a GUI error, so we keep it authentic)
 document.addEventListener('keydown', e => {
   const blocked = ['F5','F11','F12','Tab'];
   const ctrlBlocked = ['w','r','l','n','t'];
@@ -269,7 +271,32 @@ function showRestart() {
   document.getElementById('bsod').style.display = 'none';
   const rs = document.getElementById('restart-screen');
   rs.style.display = 'flex';
-  setTimeout(revealPrank, 3000);
+  rs.innerHTML = '<div class="spinner"></div><div>Restarting…</div>';
+  setTimeout(showConfiguring, 5000);
+}
+
+function showConfiguring() {
+  const rs = document.getElementById('restart-screen');
+  rs.innerHTML =
+    '<div style="font-size:88px;font-weight:200;line-height:1;margin-bottom:8px;">⚙️</div>' +
+    '<div style="font-size:20px;max-width:520px;text-align:center;line-height:1.7;font-weight:300;">' +
+      'Working on updates<br>' +
+      '<span id="cfg-pct" style="font-weight:600;">0</span>% complete<br>' +
+      '<span style="font-size:14px;opacity:0.65;">Don’t turn off your PC. This will take a while.</span>' +
+    '</div>';
+  let cfg = 0;
+  const el = rs.querySelector('#cfg-pct');
+  const iv = setInterval(() => {
+    // Slow, uneven — realistic Windows update feel
+    if (Math.random() < 0.35) return;   // stall occasionally
+    cfg = Math.min(cfg + Math.random() * 1.6 + 0.1, 100);
+    el.textContent = Math.floor(cfg);
+    if (cfg >= 100) {
+      clearInterval(iv);
+      el.textContent = 100;
+      setTimeout(revealPrank, 2000);
+    }
+  }, 250);
 }
 
 // ─── Secret chord: Alt + Esc → then Alt + Up (within 2 s) ────────────────────

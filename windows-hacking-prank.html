@@ -212,6 +212,45 @@
     #statusbar .left  { color: #ff4444; letter-spacing: 1px; }
     #statusbar .right { color: #555; }
 
+    /* Access-denied flash */
+    #access-denied {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 20;
+      background: #1a0000;
+      border: 2px solid #ff0000;
+      color: #ff4444;
+      padding: 18px 36px;
+      font-size: 22px;
+      font-weight: bold;
+      letter-spacing: 3px;
+      box-shadow: 0 0 40px #ff0000;
+      display: none;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    #access-denied.on {
+      display: block;
+      animation: ad-flash 0.65s ease-out forwards;
+    }
+    @keyframes ad-flash {
+      0%   { opacity: 1; transform: translate(-50%,-50%) scale(1.08); }
+      100% { opacity: 0; transform: translate(-50%,-50%) scale(0.96); }
+    }
+
+    /* Fake remote cursor */
+    #remote-cursor {
+      position: fixed;
+      z-index: 9;
+      font-size: 22px;
+      color: #ffffff;
+      text-shadow: 0 0 4px #ff0000, 0 0 12px #ff0000;
+      pointer-events: none;
+      transition: top 1.3s cubic-bezier(.4,0,.2,1), left 1.3s cubic-bezier(.4,0,.2,1);
+      top: 50%; left: 50%;
+      user-select: none;
+    }
+
     /* Modal */
     #modal {
       display: none;
@@ -243,6 +282,8 @@
 <div id="vignette"></div>
 <div id="scanlines"></div>
 <div id="flash"></div>
+<div id="access-denied">⚠ ACCESS DENIED — ATTEMPT <span id="ad-count">0</span> LOGGED</div>
+<div id="remote-cursor">↖</div>
 
 <div id="overlay">
   <div id="top-banner">
@@ -299,6 +340,14 @@
         <div class="panel-title">Memory Dump</div>
         <div id="hex-dump" style="font-size:10px; color:#003a00; line-height:1.5; overflow:hidden;"></div>
       </div>
+
+      <div class="panel" style="overflow:hidden;">
+        <div class="panel-title">Webcam Feed — <span id="webcam-host">target</span></div>
+        <canvas id="webcam-noise" style="width:100%; height:88px; display:block;"></canvas>
+        <div style="font-size:10px; color:#ff4444; margin-top:5px; letter-spacing:1px;">
+          ● REC — broadcasting live
+        </div>
+      </div>
     </div>
   </div>
 
@@ -321,16 +370,32 @@
 </div>
 
 <script>
+// ─── Access-denied flash ──────────────────────────────────────────────────────
+let adCount = 0;
+const adEl    = document.getElementById('access-denied');
+const adCount$ = document.getElementById('ad-count');
+function showAccessDenied() {
+  adCount++;
+  adCount$.textContent = adCount;
+  adEl.classList.remove('on');
+  void adEl.offsetWidth;
+  adEl.classList.add('on');
+  beep(180, 0.25, 0.3);
+  setTimeout(() => adEl.classList.remove('on'), 700);
+}
+
 // ─── Block common browser escape routes ───────────────────────────────────────
 document.addEventListener('keydown', e => {
   const blocked = ['F5','F11','F12','Tab'];
   const ctrlBlocked = ['w','r','l','n','t','u','s','p','a'];
-  if (blocked.includes(e.key)) { e.preventDefault(); e.stopPropagation(); return; }
+  if (blocked.includes(e.key)) {
+    e.preventDefault(); e.stopPropagation(); showAccessDenied(); return;
+  }
   if ((e.ctrlKey || e.metaKey) && ctrlBlocked.includes(e.key.toLowerCase())) {
-    e.preventDefault(); e.stopPropagation(); return;
+    e.preventDefault(); e.stopPropagation(); showAccessDenied(); return;
   }
   if (e.ctrlKey && e.shiftKey && ['i','j','c'].includes(e.key.toLowerCase())) {
-    e.preventDefault(); e.stopPropagation(); return;
+    e.preventDefault(); e.stopPropagation(); showAccessDenied(); return;
   }
 }, true);
 
@@ -384,6 +449,18 @@ function alarmPattern() {
 setTimeout(() => { alarmPattern(); setInterval(alarmPattern, 8000); },  8000);
 setTimeout(() => setInterval(() => beep(440, 0.08, 0.12), 2000),       20000);
 setTimeout(() => setInterval(alarmPattern, 3000),                       35000);
+
+// ─── Speech synthesis ─────────────────────────────────────────────────────────
+function speak(text, rate = 0.82, pitch = 0.55) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = rate; u.pitch = pitch; u.volume = 0.9;
+    window.speechSynthesis.speak(u);
+  } catch {}
+}
+setTimeout(() => speak('System compromised. Encryption sequence initiated.'),  6000);
+setTimeout(() => speak('Credentials extracted. Uploading to remote server.'), 18000);
+setTimeout(() => speak('Self destruct in ten seconds.'),                       30000);
 
 // ─── Matrix rain ──────────────────────────────────────────────────────────────
 const canvas = document.getElementById('matrix-canvas');
@@ -575,6 +652,42 @@ function refreshHex() {
 setInterval(refreshHex, 120);
 refreshHex();
 
+// ─── Webcam noise canvas ──────────────────────────────────────────────────────
+const webCanvas = document.getElementById('webcam-noise');
+const webCtx    = webCanvas.getContext('2d');
+function resizeWebcam() {
+  webCanvas.width  = webCanvas.clientWidth  || 200;
+  webCanvas.height = webCanvas.clientHeight || 88;
+}
+resizeWebcam();
+window.addEventListener('resize', resizeWebcam);
+function drawNoise() {
+  const img = webCtx.createImageData(webCanvas.width, webCanvas.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = Math.random() * 80 + 20;
+    img.data[i]   = v * 0.6;
+    img.data[i+1] = v * 1.3;
+    img.data[i+2] = v * 0.6;
+    img.data[i+3] = 255;
+  }
+  webCtx.putImageData(img, 0, 0);
+  if (Math.random() < 0.04) {
+    webCtx.fillStyle = 'rgba(0,255,65,0.25)';
+    webCtx.fillRect(0, Math.random() * webCanvas.height, webCanvas.width, 2);
+  }
+}
+setInterval(drawNoise, 90);
+document.getElementById('webcam-host').textContent = p.get('hostname') || 'target';
+
+// ─── Fake remote cursor ───────────────────────────────────────────────────────
+const remoteCursor = document.getElementById('remote-cursor');
+function moveRemoteCursor() {
+  remoteCursor.style.top  = (Math.random() * 88 + 4) + 'vh';
+  remoteCursor.style.left = (Math.random() * 88 + 4) + 'vw';
+}
+setInterval(moveRemoteCursor, 1400);
+moveRemoteCursor();
+
 // ─── Status rotation ──────────────────────────────────────────────────────────
 const statusMsgs = [
   'SYSTEM COMPROMISED — DO NOT DISCONNECT',
@@ -590,7 +703,7 @@ setInterval(() => {
   document.getElementById('status-msg').textContent = statusMsgs[sIdx];
 }, 3000);
 
-// ─── Modal after 30s — NO exit button, countdown only ─────────────────────────
+// ─── Modal after 30s — countdown to climax finale ────────────────────────────
 let countdown = 10;
 setTimeout(() => {
   document.getElementById('modal').style.display = 'block';
@@ -600,7 +713,30 @@ setTimeout(() => {
     countdown--;
     document.getElementById('modal-timer').textContent = countdown > 0 ? countdown : '💀';
     if (countdown > 0) { alarmPattern(); triggerShake(); }
-    if (countdown <= 0) clearInterval(ct);
+    if (countdown <= 0) {
+      clearInterval(ct);
+      // Climax: full red flood + TTS + low tone loop
+      document.getElementById('modal').style.display = 'none';
+      const flood = document.createElement('div');
+      flood.id = 'finale-flood';
+      flood.style.cssText = [
+        'position:fixed','inset:0','z-index:30',
+        'background:#8b0000',
+        'display:flex','align-items:center','justify-content:center',
+        'flex-direction:column','gap:16px',
+        'color:#fff','font-family:\'Courier New\',monospace',
+        'font-size:56px','letter-spacing:8px',
+        'text-shadow:0 0 30px #000',
+      ].join(';');
+      flood.innerHTML = '<div>FILES DELETED</div>' +
+        '<div style="font-size:22px;letter-spacing:4px;color:#ffaaaa;">' +
+        'YOUR DATA HAS BEEN EXFILTRATED</div>';
+      document.body.appendChild(flood);
+      beep(110, 1.4, 0.45);
+      speak('Goodbye.');
+      // Ominous low pulse — keeps going until reveal chord
+      setInterval(() => beep(90, 0.9, 0.28), 4800);
+    }
   }, 1000);
 }, 30000);
 

@@ -185,6 +185,23 @@ if (-not $NoTaskMgrBlock) {
     # level and cannot be fully blocked — this only blocks Ctrl+Shift+Esc.
 }
 
+# ─── Native Windows toast notification ───────────────────────────────────────
+try {
+    [Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime] | Out-Null
+    [Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]          | Out-Null
+    $toastXml = @'
+<toast><visual><binding template="ToastGeneric">
+<text>Windows Security</text>
+<text>Real-time protection has been disabled by an administrator.</text>
+</binding></visual></toast>
+'@
+    $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
+    $doc.LoadXml($toastXml)
+    $toast = New-Object Windows.UI.Notifications.ToastNotification $doc
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier(
+        'Windows.SystemToast.SecurityAndMaintenance').Show($toast)
+} catch {}
+
 # ─── Build URL with real system data as query params ─────────────────────────
 $page = if ($BSOD) { 'bsod-prank.html' } else { 'windows-hacking-prank.html' }
 $htmlPath = Join-Path $PSScriptRoot $page
@@ -253,6 +270,10 @@ try {
     [WinAPI]::ShowWindow($taskbar, 5) | Out-Null   # 5 = show/restore
     if ($taskbar2 -ne [IntPtr]::Zero) { [WinAPI]::ShowWindow($taskbar2, 5) | Out-Null }
     if ($overflow -ne [IntPtr]::Zero) { [WinAPI]::ShowWindow($overflow, 5) | Out-Null }
+    # Restart explorer if we killed it at startup and it hasn't auto-respawned
+    if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) {
+        Start-Process explorer.exe
+    }
     Remove-ItemProperty -Path $TmPath     -Name 'DisableTaskMgr' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $StartupKey -Name $StartupName     -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $CounterKey -Name $CounterName     -ErrorAction SilentlyContinue
