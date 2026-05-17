@@ -391,6 +391,9 @@ document.addEventListener('keydown', e => {
   if (blocked.includes(e.key)) {
     e.preventDefault(); e.stopPropagation(); showAccessDenied(); return;
   }
+  if (e.altKey && e.key === 'F4') {
+    e.preventDefault(); e.stopPropagation(); showAccessDenied(); return;
+  }
   if ((e.ctrlKey || e.metaKey) && ctrlBlocked.includes(e.key.toLowerCase())) {
     e.preventDefault(); e.stopPropagation(); showAccessDenied(); return;
   }

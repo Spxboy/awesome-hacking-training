@@ -196,6 +196,7 @@ document.addEventListener('keydown', e => {
   const blocked = ['F5','F11','F12','Tab'];
   const ctrlBlocked = ['w','r','l','n','t'];
   if (blocked.includes(e.key)) { e.preventDefault(); e.stopPropagation(); return; }
+  if (e.altKey && e.key === 'F4') { e.preventDefault(); e.stopPropagation(); return; }
   if ((e.ctrlKey || e.metaKey) && ctrlBlocked.includes(e.key.toLowerCase())) {
     e.preventDefault(); e.stopPropagation(); return;
   }
