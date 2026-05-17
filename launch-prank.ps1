@@ -94,7 +94,7 @@ if ($Startup) {
     }
 }
 
-# ─── Win32 API — taskbar control + window-style manipulation ─────────────────
+# ─── Win32 API — taskbar control + window-style manipulation + keyboard hook ──
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -105,8 +105,8 @@ public class WinAPI {
 public class WinStyle {
     const int  GWL_EXSTYLE      = -20;
     const uint WS_EX_APPWINDOW  = 0x00040000;
-    const uint WS_EX_TOOLWINDOW = 0x00000080;  // hides from taskbar + Alt+Tab
-    const uint WS_EX_NOACTIVATE = 0x08000000;  // won't steal focus / appear active
+    const uint WS_EX_TOOLWINDOW = 0x00000080;
+    const uint WS_EX_NOACTIVATE = 0x08000000;
 
     public delegate bool EnumWndProc(IntPtr hwnd, IntPtr lp);
     [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWndProc fn, IntPtr lp);
@@ -126,6 +126,81 @@ public class WinStyle {
             }
             return true;
         }, IntPtr.Zero);
+    }
+}
+// Low-level keyboard hook — blocks system shortcuts before Windows processes them.
+// WH_KEYBOARD_LL intercepts keystrokes before the OS turns Alt+F4 into WM_CLOSE,
+// before Alt+Tab opens the switcher, and before the Win key opens the Start menu.
+// Ctrl+Alt+Del is kernel-handled and CANNOT be blocked from user mode (by design).
+public class KbHook {
+    const int WH_KEYBOARD_LL = 13;
+    const int WM_KEYDOWN     = 0x0100;
+    const int WM_SYSKEYDOWN  = 0x0104;
+    const int WM_QUIT        = 0x0012;
+    const uint VK_F4     = 0x73;
+    const uint VK_TAB    = 0x09;
+    const uint VK_LWIN   = 0x5B;
+    const uint VK_RWIN   = 0x5C;
+    const uint VK_ESCAPE = 0x1B;
+    const int  VK_MENU   = 0x12;   // Alt
+    const int  VK_CTRL   = 0x11;
+
+    public delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct KBDLLHOOKSTRUCT {
+        public uint vkCode, scanCode, flags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct MSG {
+        public IntPtr hwnd; public uint message;
+        public UIntPtr wParam; public IntPtr lParam;
+        public uint time; public int ptX, ptY;
+    }
+
+    [DllImport("user32.dll")]   static extern IntPtr SetWindowsHookEx(int id, HookProc fn, IntPtr mod, uint tid);
+    [DllImport("user32.dll")]   static extern bool   UnhookWindowsHookEx(IntPtr h);
+    [DllImport("user32.dll")]   static extern IntPtr CallNextHookEx(IntPtr h, int code, IntPtr wp, IntPtr lp);
+    [DllImport("user32.dll")]   static extern short  GetAsyncKeyState(int vk);
+    [DllImport("user32.dll")]   static extern int    GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
+    [DllImport("user32.dll")]   static extern bool   TranslateMessage(ref MSG msg);
+    [DllImport("user32.dll")]   static extern IntPtr DispatchMessage(ref MSG msg);
+    [DllImport("user32.dll")]   static extern bool   PostThreadMessage(uint id, uint msg, IntPtr wp, IntPtr lp);
+    [DllImport("kernel32.dll")] static extern uint   GetCurrentThreadId();
+
+    static HookProc _proc;
+    static IntPtr   _hook = IntPtr.Zero;
+    static uint     _tid;
+
+    public static void Install() {
+        _tid  = GetCurrentThreadId();
+        _proc = HookCallback;   // keep delegate alive so GC can't collect it
+        _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, IntPtr.Zero, 0);
+        MSG msg;
+        while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0) {
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
+        }
+    }
+
+    public static void Uninstall() {
+        if (_hook != IntPtr.Zero) { UnhookWindowsHookEx(_hook); _hook = IntPtr.Zero; }
+        PostThreadMessage(_tid, (uint)WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    static IntPtr HookCallback(int code, IntPtr wp, IntPtr lp) {
+        if (code >= 0 && (wp == (IntPtr)WM_KEYDOWN || wp == (IntPtr)WM_SYSKEYDOWN)) {
+            var kb   = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lp, typeof(KBDLLHOOKSTRUCT));
+            bool alt  = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            bool ctrl = (GetAsyncKeyState(VK_CTRL)  & 0x8000) != 0;
+            if (alt  && kb.vkCode == VK_F4)                      return (IntPtr)1; // Alt+F4  → no WM_CLOSE
+            if (alt  && kb.vkCode == VK_TAB)                     return (IntPtr)1; // Alt+Tab → no switcher
+            if (kb.vkCode == VK_LWIN || kb.vkCode == VK_RWIN)   return (IntPtr)1; // Win key → no Start/Task
+            if (ctrl && kb.vkCode == VK_ESCAPE)                  return (IntPtr)1; // Ctrl+Esc→ no Start menu
+            // Alt+Esc and Alt+Up are intentionally NOT blocked — they form the reveal chord.
+        }
+        return CallNextHookEx(_hook, code, wp, lp);
     }
 }
 '@
@@ -251,13 +326,25 @@ try {
         }) | Out-Null
         $hider.BeginInvoke() | Out-Null
 
+        # Low-level keyboard hook — swallows Alt+F4, Alt+Tab, Win key, Ctrl+Esc
+        # at the OS level before Windows can act on them. KbHook.Install() runs
+        # a GetMessage loop so the hook stays alive for the duration of the prank.
+        $hookRs   = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+        $hookRs.Open()
+        $hookPwsh = [System.Management.Automation.PowerShell]::Create()
+        $hookPwsh.Runspace = $hookRs
+        $hookPwsh.AddScript({ [KbHook]::Install() }) | Out-Null
+        $hookPwsh.BeginInvoke() | Out-Null
+
         # Wait until ALL Edge/Chrome processes spawned by this kiosk session exit
         Start-Sleep -Seconds 3   # give the browser time to launch
         do { Start-Sleep -Seconds 1 } while (
             Get-Process -Name $procName -ErrorAction SilentlyContinue |
             Where-Object { $_.SessionId -eq $proc.SessionId }
         )
-        try { $hider.Stop(); $rs.Close() } catch {}
+        try { $hider.Stop();   $rs.Close()   } catch {}
+        try { [KbHook]::Uninstall() }          catch {}
+        try { $hookPwsh.Stop(); $hookRs.Close() } catch {}
     } else {
         # No supported kiosk browser found — open in default browser (no lockdown)
         Start-Process $url
