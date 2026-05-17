@@ -94,17 +94,45 @@ if ($Startup) {
     }
 }
 
-# ─── Win32 API for taskbar show/hide ─────────────────────────────────────────
+# ─── Win32 API — taskbar control + window-style manipulation ─────────────────
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class WinAPI {
-    [DllImport("user32.dll")] public static extern int   ShowWindow(IntPtr hWnd, int nCmd);
+    [DllImport("user32.dll")] public static extern int    ShowWindow(IntPtr hWnd, int nCmd);
     [DllImport("user32.dll")] public static extern IntPtr FindWindow(string cls, string win);
+}
+public class WinStyle {
+    const int  GWL_EXSTYLE      = -20;
+    const uint WS_EX_APPWINDOW  = 0x00040000;
+    const uint WS_EX_TOOLWINDOW = 0x00000080;  // hides from taskbar + Alt+Tab
+    const uint WS_EX_NOACTIVATE = 0x08000000;  // won't steal focus / appear active
+
+    public delegate bool EnumWndProc(IntPtr hwnd, IntPtr lp);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWndProc fn, IntPtr lp);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] public static extern uint GetWindowLong(IntPtr h, int i);
+    [DllImport("user32.dll")] public static extern uint SetWindowLong(IntPtr h, int i, uint v);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+
+    public static void HideFromShell(int pid) {
+        EnumWindows((hwnd, _) => {
+            uint wpid;
+            GetWindowThreadProcessId(hwnd, out wpid);
+            if ((int)wpid == pid && IsWindowVisible(hwnd)) {
+                uint s = GetWindowLong(hwnd, GWL_EXSTYLE);
+                s = (s & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+                SetWindowLong(hwnd, GWL_EXSTYLE, s);
+            }
+            return true;
+        }, IntPtr.Zero);
+    }
 }
 '@
 
-$taskbar = [WinAPI]::FindWindow('Shell_TrayWnd', $null)
+$taskbar  = [WinAPI]::FindWindow('Shell_TrayWnd',           $null)
+$taskbar2 = [WinAPI]::FindWindow('Shell_SecondaryTrayWnd',  $null)
+$overflow = [WinAPI]::FindWindow('NotifyIconOverflowWindow', $null)
 
 # ─── Gather real system data ──────────────────────────────────────────────────
 $hostname = $env:COMPUTERNAME
