@@ -167,8 +167,15 @@ if (-not $Startup) {
     Set-ItemProperty -Path $CounterKey -Name $CounterName -Value 0
 }
 
-# ─── Hide taskbar ────────────────────────────────────────────────────────────
-[WinAPI]::ShowWindow($taskbar, 0) | Out-Null   # 0 = hide
+# ─── Hide taskbar (primary + secondary monitors + notification overflow) ──────
+[WinAPI]::ShowWindow($taskbar,  0) | Out-Null
+if ($taskbar2 -ne [IntPtr]::Zero) { [WinAPI]::ShowWindow($taskbar2, 0) | Out-Null }
+if ($overflow -ne [IntPtr]::Zero) { [WinAPI]::ShowWindow($overflow, 0) | Out-Null }
+
+# Kill the explorer shell entirely — removes Start menu, desktop, taskbar for good.
+# The finally block restarts it on cleanup.
+Get-Process 'explorer' -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
 
 # ─── Optionally disable Task Manager ─────────────────────────────────────────
 if (-not $NoTaskMgrBlock) {
@@ -203,14 +210,37 @@ try {
     if ($browser) {
         $kioskFlags = "--kiosk `"$url`" --edge-kiosk-type=fullscreen " +
                       "--no-first-run --disable-features=TranslateUI"
-        $proc = Start-Process $browser $kioskFlags -PassThru
-        # Wait until ALL Edge/Chrome processes spawned by this kiosk session exit
+        $proc     = Start-Process $browser $kioskFlags -PassThru
         $procName = [System.IO.Path]::GetFileNameWithoutExtension($browser)
+
+        # Background runspace: strip every browser window from taskbar + Alt+Tab every 2 s.
+        # Chrome spawns renderer/GPU/network child processes that each create new windows,
+        # so a one-shot call at startup isn't enough — we keep re-applying.
+        $rs = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace()
+        $rs.Open()
+        $rs.SessionStateProxy.SetVariable('n', $procName)
+        $rs.SessionStateProxy.SetVariable('s', $proc.SessionId)
+        $hider = [System.Management.Automation.PowerShell]::Create()
+        $hider.Runspace = $rs
+        $hider.AddScript({
+            while ($true) {
+                Start-Sleep -Seconds 2
+                try {
+                    $ids = (Get-Process -Name $n -ErrorAction SilentlyContinue |
+                            Where-Object { $_.SessionId -eq $s }).Id
+                    foreach ($id in $ids) { [WinStyle]::HideFromShell($id) }
+                } catch {}
+            }
+        }) | Out-Null
+        $hider.BeginInvoke() | Out-Null
+
+        # Wait until ALL Edge/Chrome processes spawned by this kiosk session exit
         Start-Sleep -Seconds 3   # give the browser time to launch
         do { Start-Sleep -Seconds 1 } while (
             Get-Process -Name $procName -ErrorAction SilentlyContinue |
             Where-Object { $_.SessionId -eq $proc.SessionId }
         )
+        try { $hider.Stop(); $rs.Close() } catch {}
     } else {
         # No supported kiosk browser found — open in default browser (no lockdown)
         Start-Process $url
@@ -221,6 +251,8 @@ try {
     # Also runs on clean system shutdown; does NOT reliably run on hard power-off,
     # which is fine — the reboot counter handles that case.
     [WinAPI]::ShowWindow($taskbar, 5) | Out-Null   # 5 = show/restore
+    if ($taskbar2 -ne [IntPtr]::Zero) { [WinAPI]::ShowWindow($taskbar2, 5) | Out-Null }
+    if ($overflow -ne [IntPtr]::Zero) { [WinAPI]::ShowWindow($overflow, 5) | Out-Null }
     Remove-ItemProperty -Path $TmPath     -Name 'DisableTaskMgr' -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $StartupKey -Name $StartupName     -ErrorAction SilentlyContinue
     Remove-ItemProperty -Path $CounterKey -Name $CounterName     -ErrorAction SilentlyContinue
